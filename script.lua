@@ -1,5 +1,6 @@
 -- ========================================
--- ===== PLANT HUB v3.0 ULTIMATE (БЕЗ ПРИВЕТСТВИЯ) =====
+-- ===== PLANT HUB v3.0 ULTIMATE =====
+-- ===== С АУРОЙ, МОБИЛЬНЫМИ КНОПКАМИ И JERK =====
 -- ========================================
 
 local Players = game:GetService("Players")
@@ -135,6 +136,9 @@ local Settings = {
     ChinaHatHeight = 1.6,
     ChinaHatReflectance = 0,
     ChinaHatSides = 25,
+    AuraEnabled = false,
+    AuraColor = Color3.fromRGB(133, 220, 255),
+    JerkEnabled = false,
 }
 
 -- ========================================
@@ -168,6 +172,9 @@ local Cache = {
     ChinaHatDrawings = {},
     TextureState = {},
     TextureVariantsBuilt = false,
+    AuraParticles = {},
+    AuraCache = {},
+    JerkConnection = nil,
 }
 
 local COLORS = {
@@ -187,6 +194,150 @@ local CHAMS_COLORS = {
     Red = Color3.fromRGB(255, 0, 0),
     Green = Color3.fromRGB(0, 255, 0),
 }
+
+-- ========================================
+-- ===== АУРА (ВЬЮВЕР) =====
+-- ========================================
+
+local AURA_IDS = {
+    angel = "97658130917593",
+    starlight = "134645216613107",
+    heavenly = "139300897520961",
+    ribbon = "132069507632161",
+    sakura = "81755778619404",
+    wind = "80694081850877",
+    flow = "119913533725648",
+    star = "73754563740680"
+}
+
+local AURA_ORDER = {"angel", "starlight", "heavenly", "ribbon", "sakura", "wind", "flow", "star"}
+local AuraSelected = {}
+
+for _, name in ipairs(AURA_ORDER) do
+    AuraSelected[name] = false
+end
+
+local function clearAura()
+    for _, p in ipairs(Cache.AuraParticles) do
+        pcall(function() p:Destroy() end)
+    end
+    Cache.AuraParticles = {}
+end
+
+local function loadAura(name)
+    if Cache.AuraCache[name] then return Cache.AuraCache[name] end
+    local id = AURA_IDS[name]
+    if not id then return nil end
+    local success, result = pcall(game.GetObjects, game, "rbxassetid://"..id)
+    if success and result and result[1] then
+        Cache.AuraCache[name] = result[1]
+        return result[1]
+    end
+    return nil
+end
+
+local function colorAura(model, color)
+    local seq = ColorSequence.new(color)
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("PointLight") then
+            descendant.Color = color
+        elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
+            descendant.Color = seq
+        end
+    end
+end
+
+local function applyAura()
+    clearAura()
+    
+    if not Settings.AuraEnabled then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local real_char = char
+    if char.Parent ~= workspace then
+        real_char = nil
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj.Name == LocalPlayer.Name then
+                if not (obj:GetAttribute("1") or obj == _G.VIEWPORT_CLONE) then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart")
+                    if hrp and hrp:IsA("BasePart") then
+                        real_char = obj
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    if not real_char then return end
+    
+    for _, name in ipairs(AURA_ORDER) do
+        if AuraSelected[name] then
+            local aura_model = loadAura(name)
+            if aura_model then
+                colorAura(aura_model, Settings.AuraColor)
+                local cloned = aura_model:Clone()
+                for _, part in ipairs(cloned:GetChildren()) do
+                    local target = real_char:FindFirstChild(part.Name)
+                    if target and target:IsA("BasePart") then
+                        for _, child in ipairs(part:GetChildren()) do
+                            child.Parent = target
+                            table.insert(Cache.AuraParticles, child)
+                        end
+                    end
+                end
+                cloned:Destroy()
+            end
+        end
+    end
+end
+
+local function toggleAura(value)
+    Settings.AuraEnabled = value
+    if value then
+        applyAura()
+    else
+        clearAura()
+    end
+end
+
+-- ========================================
+-- ===== JERK (ДЁРГАНЬЕ) =====
+-- ========================================
+
+local function toggleJerk(value)
+    Settings.JerkEnabled = value
+    
+    if value then
+        if Cache.JerkConnection then
+            Cache.JerkConnection:Disconnect()
+            Cache.JerkConnection = nil
+        end
+        
+        Cache.JerkConnection = RunService.Heartbeat:Connect(function()
+            if not LocalPlayer.Character then return end
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            
+            -- Рандомное дёрганье
+            local randomVec = Vector3.new(
+                math.random(-50, 50),
+                math.random(-30, 30),
+                math.random(-50, 50)
+            )
+            hrp.AssemblyLinearVelocity = randomVec
+        end)
+        notify("Jerk", "Включен (тебя будет дёргать)", 2)
+    else
+        if Cache.JerkConnection then
+            Cache.JerkConnection:Disconnect()
+            Cache.JerkConnection = nil
+        end
+        notify("Jerk", "Выключен", 2)
+    end
+end
 
 -- ========================================
 -- ===== ХЕЛПЕРЫ =====
@@ -2186,6 +2337,9 @@ local function executeMobileAction(action)
             clearAllTracers()
         end
         notify("Мобилка", "ESP: " .. tostring(Settings.MurderESP), 1)
+    elseif action == "Jerk" then
+        toggleJerk(not Settings.JerkEnabled)
+        notify("Мобилка", "Jerk: " .. tostring(Settings.JerkEnabled), 1)
     end
 end
 
@@ -2340,6 +2494,43 @@ WorldSection:Toggle({Title = "Texture Pack", Default = false, Callback = functio
     toggleTexturePack(v)
 end})
 
+-- АУРА
+local AuraSection = VisualTab:Section({Title = "Аура", Side = "Right"})
+
+AuraSection:Toggle({Title = "Включить ауру", Default = false, Callback = function(v)
+    toggleAura(v)
+end})
+
+-- Кнопки для выбора аур (через Input)
+for _, name in ipairs(AURA_ORDER) do
+    AuraSection:Toggle({
+        Title = name:upper(),
+        Default = false,
+        Callback = function(v)
+            AuraSelected[name] = v
+            if Settings.AuraEnabled then
+                applyAura()
+            end
+        end
+    })
+end
+
+AuraSection:Input({
+    Title = "Цвет (R,G,B)",
+    Default = "133,220,255",
+    Placeholder = "133,220,255",
+    Callback = function(v)
+        local parts = {}
+        for p in v:gmatch("[^,]+") do table.insert(parts, tonumber(p)) end
+        if #parts == 3 then
+            Settings.AuraColor = Color3.fromRGB(parts[1], parts[2], parts[3])
+            if Settings.AuraEnabled then
+                applyAura()
+            end
+        end
+    end
+})
+
 -- ЭФФЕКТЫ
 local EffectsTab = Window:Tab({Title = "Эффекты", Icon = "sparkles"})
 local EffectsL = EffectsTab:Section({Title = "Эффекты", Side = "Left"})
@@ -2493,6 +2684,14 @@ RageM:Button({Title = "Телепорт к шерифу", Callback = function() 
 
 RageA:Button({Title = "Grab Gun", Callback = function() toggleGrabGun() end})
 
+-- FUN
+local FunTab = Window:Tab({Title = "Fun", Icon = "smile"})
+local FunSection = FunTab:Section({Title = "Приколы", Side = "Left"})
+
+FunSection:Toggle({Title = "Jerk (дёрганье)", Default = false, Callback = function(v)
+    toggleJerk(v)
+end})
+
 -- КОМБАТ
 local CombatTab = Window:Tab({Title = "Комбат", Icon = "crosshair"})
 local CombatL = CombatTab:Section({Title = "Комбат", Side = "Left"})
@@ -2544,12 +2743,14 @@ MobileL:Button({Title = "Спин", Callback = function() addMobileButtonUI("С�
 MobileL:Button({Title = "Ноклип", Callback = function() addMobileButtonUI("Ноклип", "Noclip") end})
 MobileL:Button({Title = "Аимбот", Callback = function() addMobileButtonUI("Аимбот", "Aimbot") end})
 MobileL:Button({Title = "ESP", Callback = function() addMobileButtonUI("ESP", "ESP") end})
+MobileL:Button({Title = "Jerk", Callback = function() addMobileButtonUI("Jerk", "Jerk") end})
 
 MobileR:Button({Title = "Удалить Полёт", Callback = function() removeMobileButtonUI("Полёт") end})
 MobileR:Button({Title = "Удалить Спин", Callback = function() removeMobileButtonUI("Спин") end})
 MobileR:Button({Title = "Удалить Ноклип", Callback = function() removeMobileButtonUI("Ноклип") end})
 MobileR:Button({Title = "Удалить Аимбот", Callback = function() removeMobileButtonUI("Аимбот") end})
 MobileR:Button({Title = "Удалить ESP", Callback = function() removeMobileButtonUI("ESP") end})
+MobileR:Button({Title = "Удалить Jerk", Callback = function() removeMobileButtonUI("Jerk") end})
 MobileR:Button({Title = "Удалить все", Callback = function()
     for label, _ in pairs(MobileButtons) do
         removeMobileButton(label)
@@ -2679,6 +2880,11 @@ LocalPlayer.CharacterAdded:Connect(function()
         if Settings.ChinaHatStyle == "Classic" then
             hatAddClassic(LocalPlayer.Character)
         end
+    end
+    
+    if Settings.AuraEnabled then
+        task.wait(0.3)
+        applyAura()
     end
 end)
 
@@ -2826,4 +3032,4 @@ header.InputEnded:Connect(function(input)
 end)
 
 print("✅ Planet Hub v3.0 ULTIMATE загружен!")
-print("✅ Texture Pack, China Hat, Skybox интегрированы!")
+print("✅ Texture Pack, China Hat, Skybox, Аура, Jerk интегрированы!")

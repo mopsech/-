@@ -1,4 +1,34 @@
 -- ========================================
+-- ===== PLANT HUB v3.0 ULTIMATE (БЕЗ ПРИВЕТСТВИЯ) =====
+-- ========================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local MaterialService = game:GetService("MaterialService")
+local ContentProvider = game:GetService("ContentProvider")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ========================================
+-- ===== ЗАГРУЗКА WINDUI =====
+-- ========================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+if not WindUI then
+    game.StarterGui:SetCore("SendNotification", {Title="Error", Text="WindUI not loaded!", Duration=5})
+    return
+end
+
+WindUI:SetTheme("Violet")
+WindUI.TransparencyValue = 0.1
+
+-- ========================================
 -- ===== ПЛАШКА "РЕЛИЗ" =====
 -- ========================================
 
@@ -221,26 +251,6 @@ local function getRoleColor(player)
     return COLORS.Purple
 end
 
-local function getLocalKnife()
-    if not LocalPlayer.Character then return nil end
-    for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
-        if item:IsA("Tool") then
-            local n = item.Name:lower()
-            if n:find("knife") or n:find("blade") then return item end
-        end
-    end
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    if bp then
-        for _, item in ipairs(bp:GetChildren()) do
-            if item:IsA("Tool") then
-                local n = item.Name:lower()
-                if n:find("knife") or n:find("blade") then return item end
-            end
-        end
-    end
-    return nil
-end
-
 local function equipGun()
     if not LocalPlayer.Character then return false end
     for _, item in ipairs(LocalPlayer.Character:GetDescendants()) do
@@ -412,7 +422,7 @@ local function toggleGrabGun()
 end
 
 -- ========================================
--- ===== SHERIFF AUTO SHOOT (ТРИГГЕР-БОТ) =====
+-- ===== SHERIFF AUTO SHOOT =====
 -- ========================================
 
 local function sheriffAutoShootLoop()
@@ -481,7 +491,7 @@ local function toggleSheriffAutoShoot(value)
 end
 
 -- ========================================
--- ===== WALL HOP (РАБОЧИЙ) =====
+-- ===== WALL HOP =====
 -- ========================================
 
 local wallHopConnection = nil
@@ -790,7 +800,7 @@ local function setupVignette(en)
 end
 
 -- ========================================
--- ===== НЕБО (SKYBOX) С НОВЫМИ ID =====
+-- ===== НЕБО (SKYBOX) =====
 -- ========================================
 
 local SKYBOX_ASSETS = {
@@ -895,7 +905,6 @@ end
 local function setupSky(skyName)
     local sb = SKYBOX_ASSETS[skyName]
     if not sb then
-        -- Попробуем как ID
         local skyId = tostring(skyName):gsub("%s+",""):gsub("rbxassetid://","")
         if skyId:match("^%d+$") then
             local url = "rbxassetid://" .. skyId
@@ -947,7 +956,7 @@ local function removeSky()
 end
 
 -- ========================================
--- ===== TEXTURE PACK (WORLD) =====
+-- ===== TEXTURE PACK =====
 -- ========================================
 
 local TEXTURE_VARIANTS = {
@@ -1083,7 +1092,7 @@ local function toggleTexturePack(value)
 end
 
 -- ========================================
--- ===== CHINA HAT (КИТАЙСКАЯ ШЛЯПА) =====
+-- ===== CHINA HAT =====
 -- ========================================
 
 local tau = math.pi * 2
@@ -1358,7 +1367,7 @@ local function updateJumpCircles()
 end
 
 -- ========================================
--- ===== FOV АИМБОТ (БЕЗ ПРЕДИКТА) =====
+-- ===== FOV АИМБОТ =====
 -- ========================================
 
 local function getClosestMurderInFov()
@@ -1968,7 +1977,7 @@ local function setupSheriffDeadNotif()
 end
 
 -- ========================================
--- ===== КНОПКА ВЫСТРЕЛА (С НЕОН-ТРЕЙСОМ) =====
+-- ===== КНОПКА ВЫСТРЕЛА =====
 -- ========================================
 
 local function createShootButton()
@@ -2285,7 +2294,6 @@ VisualSection:Toggle({Title = "ESP Убийца", Default = false, Callback = fu
 VisualSection:Toggle({Title = "ESP Шериф", Default = false, Callback = function(v) Settings.SheriffESP = v startMainUpdate() end})
 VisualSection:Toggle({Title = "ESP Невинный", Default = false, Callback = function(v) Settings.InnocentESP = v startMainUpdate() end})
 
--- CHAMS СЕКЦИЯ
 local ChamsSection = VisualTab:Section({Title = "Chams", Side = "Right"})
 
 ChamsSection:Toggle({Title = "Включить Chams", Default = false, Callback = function(v)
@@ -2310,7 +2318,6 @@ ChamsSection:Input({
     end
 })
 
--- RGB HUMAN В CHAMS
 ChamsSection:Toggle({Title = "RGB Humanoid (отдельно)", Default = false, Callback = function(v)
     Settings.RGBHumanoid = v
     setupRGBHumanoid()
@@ -2353,7 +2360,7 @@ EffectsL:Toggle({Title = "Bloom", Default = false, Callback = function(v) Settin
 EffectsL:Toggle({Title = "Цветокоррекция", Default = false, Callback = function(v) Settings.ColorCorrectionEnabled = v setupColorCorrection(v) end})
 EffectsL:Toggle({Title = "Виньетка", Default = false, Callback = function(v) Settings.VignetteEnabled = v setupVignette(v) end})
 
--- CHINA HAT (в Effects)
+-- CHINA HAT
 local ChinaHatSection = EffectsTab:Section({Title = "China Hat", Side = "Left"})
 
 ChinaHatSection:Toggle({Title = "Включить", Default = false, Callback = function(v)
@@ -2420,7 +2427,7 @@ ChinaHatSection:Input({
     end
 })
 
--- Скайбокс (обновлённый)
+-- Скайбокс
 EffectsR:Input({Title = "Выбор неба", Default = "HD", Placeholder = "HD, Space, Galaxy, etc.", Callback = function(v)
     Settings.CustomSkyId = v
 end})
@@ -2682,8 +2689,6 @@ end)
 startMainUpdate()
 setupSheriffDeadNotif()
 createFovCircle()
-
--- Инициализация China Hat
 createChinaHatDrawings()
 
 notify("PlanetHub", "Загружен - Violet тема", 4)

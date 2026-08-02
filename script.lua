@@ -1,6 +1,6 @@
 -- ========================================
 -- ===== PLANT HUB v3.0 ULTIMATE =====
--- ===== С АУРОЙ, МОБИЛЬНЫМИ КНОПКАМИ И JERK =====
+-- ===== С АУРОЙ, JERK, FLY (БЕЗ МОБИЛОК) =====
 -- ========================================
 
 local Players = game:GetService("Players")
@@ -162,7 +162,6 @@ local Cache = {
     FlyBlockPart = nil,
     ShootButton = nil,
     GrabGunGui = nil,
-    MobileButtons = {},
     mainConn = nil,
     GrabGunRunning = false,
     WallHopConnection = nil,
@@ -175,6 +174,12 @@ local Cache = {
     AuraParticles = {},
     AuraCache = {},
     JerkConnection = nil,
+    FlyCore = nil,
+    FlyKeys = {a=false,d=false,w=false,s=false},
+    FlySpeed = 10,
+    FlyRunning = false,
+    FlyE1 = nil,
+    FlyE2 = nil,
 }
 
 local COLORS = {
@@ -304,7 +309,7 @@ local function toggleAura(value)
 end
 
 -- ========================================
--- ===== JERK (ДЁРГАНЬЕ) =====
+-- ===== JERK (ОРИГИНАЛ) =====
 -- ========================================
 
 local function toggleJerk(value)
@@ -321,7 +326,6 @@ local function toggleJerk(value)
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
             
-            -- Рандомное дёрганье
             local randomVec = Vector3.new(
                 math.random(-50, 50),
                 math.random(-30, 30),
@@ -329,13 +333,183 @@ local function toggleJerk(value)
             )
             hrp.AssemblyLinearVelocity = randomVec
         end)
-        notify("Jerk", "Включен (тебя будет дёргать)", 2)
+        notify("Jerk", "Включен", 2)
     else
         if Cache.JerkConnection then
             Cache.JerkConnection:Disconnect()
             Cache.JerkConnection = nil
         end
         notify("Jerk", "Выключен", 2)
+    end
+end
+
+-- ========================================
+-- ===== FLY (ОРИГИНАЛ) =====
+-- ========================================
+
+local function stopFly()
+    if Cache.FlyRunning then
+        Cache.FlyRunning = false
+        if Cache.FlyE1 then
+            Cache.FlyE1:Disconnect()
+            Cache.FlyE1 = nil
+        end
+        if Cache.FlyE2 then
+            Cache.FlyE2:Disconnect()
+            Cache.FlyE2 = nil
+        end
+        if Cache.FlyCore and Cache.FlyCore.Parent then
+            Cache.FlyCore:Destroy()
+            Cache.FlyCore = nil
+        end
+        if LocalPlayer.Character then
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
+        end
+        Cache.FlyKeys = {a=false,d=false,w=false,s=false}
+        Cache.FlySpeed = 10
+    end
+end
+
+local function startFly()
+    if Cache.FlyRunning then return end
+    if not LocalPlayer.Character then return end
+    
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse then return end
+    
+    -- Удаляем старый Core
+    if workspace:FindFirstChild("Core") then
+        workspace.Core:Destroy()
+    end
+    if Cache.FlyCore and Cache.FlyCore.Parent then
+        Cache.FlyCore:Destroy()
+        Cache.FlyCore = nil
+    end
+    
+    local Core = Instance.new("Part")
+    Core.Name = "Core"
+    Core.Size = Vector3.new(0.05, 0.05, 0.05)
+    Core.Anchored = true
+    Core.CanCollide = false
+    Core.Transparency = 1
+    Core.Parent = workspace
+    
+    task.spawn(function()
+        repeat task.wait() until LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("LowerTorso")
+        if Core and Core.Parent then
+            local Weld = Instance.new("Weld", Core)
+            Weld.Part0 = Core
+            Weld.Part1 = LocalPlayer.Character.LowerTorso
+            Weld.C0 = CFrame.new(0, 0, 0)
+        end
+    end)
+    
+    task.wait(0.1)
+    local torso = workspace:FindFirstChild("Core")
+    if not torso then
+        notify("Fly", "Core не создан", 2)
+        return
+    end
+    
+    Cache.FlyCore = torso
+    Cache.FlyRunning = true
+    Cache.FlyKeys = {a=false,d=false,w=false,s=false}
+    Cache.FlySpeed = 10
+    
+    local pos = Instance.new("BodyPosition", torso)
+    local gyro = Instance.new("BodyGyro", torso)
+    pos.Name = "EPIXPOS"
+    pos.maxForce = Vector3.new(math.huge, math.huge, math.huge)
+    pos.position = torso.Position
+    gyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+    gyro.cframe = torso.CFrame
+    
+    local flyThread = task.spawn(function()
+        while Cache.FlyRunning and torso and torso.Parent do
+            task.wait()
+            if not LocalPlayer.Character then break end
+            
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = true end
+            
+            local new = gyro.cframe - gyro.cframe.p + pos.position
+            
+            if not Cache.FlyKeys.w and not Cache.FlyKeys.s and not Cache.FlyKeys.a and not Cache.FlyKeys.d then
+                Cache.FlySpeed = 5
+            end
+            
+            if Cache.FlyKeys.w then
+                new = new + workspace.CurrentCamera.CoordinateFrame.lookVector * Cache.FlySpeed
+            end
+            if Cache.FlyKeys.s then
+                new = new - workspace.CurrentCamera.CoordinateFrame.lookVector * Cache.FlySpeed
+            end
+            if Cache.FlyKeys.d then
+                new = new * CFrame.new(Cache.FlySpeed,0,0)
+            end
+            if Cache.FlyKeys.a then
+                new = new * CFrame.new(-Cache.FlySpeed,0,0)
+            end
+            
+            if Cache.FlySpeed > 10 then Cache.FlySpeed = 5 end
+            
+            pos.position = new.p
+            
+            if Cache.FlyKeys.w then
+                gyro.cframe = workspace.CurrentCamera.CoordinateFrame * CFrame.Angles(-math.rad(Cache.FlySpeed*0),0,0)
+            elseif Cache.FlyKeys.s then
+                gyro.cframe = workspace.CurrentCamera.CoordinateFrame * CFrame.Angles(math.rad(Cache.FlySpeed*0),0,0)
+            else
+                gyro.cframe = workspace.CurrentCamera.CoordinateFrame
+            end
+        end
+        
+        if gyro then gyro:Destroy() end
+        if pos then pos:Destroy() end
+        if Cache.FlyCore and Cache.FlyCore.Parent then
+            Cache.FlyCore:Destroy()
+            Cache.FlyCore = nil
+        end
+        if LocalPlayer.Character then
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
+        end
+        Cache.FlyRunning = false
+    end)
+    
+    Cache.FlyE1 = mouse.KeyDown:Connect(function(key)
+        if not Cache.FlyRunning then return end
+        if key == "w" then Cache.FlyKeys.w = true
+        elseif key == "s" then Cache.FlyKeys.s = true
+        elseif key == "a" then Cache.FlyKeys.a = true
+        elseif key == "d" then Cache.FlyKeys.d = true
+        elseif key == "x" then
+            if Cache.FlyRunning then
+                stopFly()
+            else
+                startFly()
+            end
+        end
+    end)
+    
+    Cache.FlyE2 = mouse.KeyUp:Connect(function(key)
+        if key == "w" then Cache.FlyKeys.w = false
+        elseif key == "s" then Cache.FlyKeys.s = false
+        elseif key == "a" then Cache.FlyKeys.a = false
+        elseif key == "d" then Cache.FlyKeys.d = false
+        end
+    end)
+    
+    notify("Fly", "Включен (WASD - движение, X - выкл)", 2)
+end
+
+local function toggleFly(value)
+    Settings.FlyEnabled = value
+    if value then
+        startFly()
+    else
+        stopFly()
     end
 end
 
@@ -821,8 +995,7 @@ end
 -- ========================================
 
 local function createTracer(player)
-    if not player or player == LocalPlayer then return end
-    if Cache.Tracers[player.UserId] then return end
+    if not player or player == LocalPlayer then return end    if Cache.Tracers[player.UserId] then return end
     
     local line = Drawing.new("Line")
     line.Thickness = 2
@@ -1781,274 +1954,6 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== ПОЛЁТ =====
--- ========================================
-
-local flyConn = nil
-local isFlying = false
-local flyBV = nil
-local flyBG = nil
-local origGravity = workspace.Gravity
-
-local function createFlyBlock()
-    if Cache.FlyBlockPart then
-        pcall(function() Cache.FlyBlockPart:Destroy() end)
-        Cache.FlyBlockPart = nil
-    end
-    
-    local block = Instance.new("Part")
-    block.Name = "FlyBlock"
-    block.Size = Vector3.new(0.01, 0.01, 0.01)
-    block.Transparency = 1
-    block.CanCollide = false
-    block.Anchored = true
-    block.Parent = workspace
-    
-    Cache.FlyBlockPart = block
-    return block
-end
-
-local function stopFly()
-    isFlying = false
-    safeDisconnect(flyConn); flyConn = nil
-    workspace.Gravity = origGravity
-    
-    if LocalPlayer.Character then
-        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = false end
-    end
-    if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
-    if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
-    
-    if Cache.FlyBlockPart then
-        pcall(function() Cache.FlyBlockPart:Destroy() end)
-        Cache.FlyBlockPart = nil
-    end
-end
-
-local function startFly()
-    if not LocalPlayer.Character then return end
-    if isFlying then stopFly() end
-    
-    local char = LocalPlayer.Character
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hum or not hrp then return end
-    
-    isFlying = true
-    origGravity = workspace.Gravity
-    workspace.Gravity = 0
-    hum.PlatformStand = true
-    
-    createFlyBlock()
-    
-    for _, cls in ipairs({"BodyVelocity", "BodyGyro"}) do
-        local old = hrp:FindFirstChildOfClass(cls)
-        if old then old:Destroy() end
-    end
-    
-    flyBV = Instance.new("BodyVelocity")
-    flyBV.MaxForce = Vector3.new(1e8, 1e8, 1e8)
-    flyBV.Velocity = Vector3.new(0, 0, 0)
-    flyBV.Parent = hrp
-    
-    flyBG = Instance.new("BodyGyro")
-    flyBG.MaxTorque = Vector3.new(1e8, 1e8, 1e8)
-    flyBG.P = 3000
-    flyBG.D = 200
-    flyBG.CFrame = hrp.CFrame
-    flyBG.Parent = hrp
-    
-    safeDisconnect(flyConn)
-    flyConn = RunService.RenderStepped:Connect(function()
-        if not isFlying or not char or not char.Parent or not hrp or not hrp.Parent then
-            stopFly()
-            return
-        end
-        
-        local camCF = Camera.CFrame
-        local moveDir = Vector3.new(0, 0, 0)
-        
-        if UserInputService.KeyboardEnabled then
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir += camCF.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir -= camCF.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir -= camCF.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir += camCF.RightVector end
-        end
-        
-        if UserInputService.KeyboardEnabled then
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                moveDir += Vector3.new(0, Settings.FlySpeed, 0)
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-                moveDir -= Vector3.new(0, Settings.FlySpeed, 0)
-            end
-        end
-        
-        local horiz = Vector3.new(moveDir.X, 0, moveDir.Z)
-        if horiz.Magnitude > 0.01 then
-            horiz = horiz.Unit * Settings.FlySpeed
-        end
-        
-        local finalVel = Vector3.new(horiz.X, moveDir.Y, horiz.Z)
-        flyBV.Velocity = finalVel
-        flyBG.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, camCF:ToEulerAnglesYXZ(), 0)
-        
-        if Cache.FlyBlockPart then
-            Cache.FlyBlockPart.CFrame = hrp.CFrame
-        end
-    end)
-end
-
--- ========================================
--- ===== БАНИ ХОП =====
--- ========================================
-
-local bhopConn = nil
-local bhopBV = nil
-local bhopActive = false
-
-local function stopBHop()
-    bhopActive = false
-    safeDisconnect(bhopConn); bhopConn = nil
-    if bhopBV then pcall(function() bhopBV:Destroy() end) bhopBV = nil end
-end
-
-local function startBHop()
-    if not LocalPlayer.Character then return end
-    if bhopActive then stopBHop() end
-
-    local char = LocalPlayer.Character
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hum or not hrp then return end
-
-    bhopActive = true
-
-    if bhopBV then pcall(function() bhopBV:Destroy() end) bhopBV = nil end
-    bhopBV = Instance.new("BodyVelocity")
-    bhopBV.Name = "BHopBV"
-    bhopBV.MaxForce = Vector3.new(1e5, 0, 1e5)
-    bhopBV.Velocity = Vector3.new(0, 0, 0)
-    bhopBV.Parent = hrp
-
-    local lastJump = 0
-    local COOLDOWN = 0.15
-
-    safeDisconnect(bhopConn)
-    bhopConn = RunService.Stepped:Connect(function()
-        if not bhopActive then stopBHop() return end
-
-        char = LocalPlayer.Character
-        if not char then return end
-        hum = char:FindFirstChildOfClass("Humanoid")
-        hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp then return end
-
-        if not bhopBV or not bhopBV.Parent then
-            bhopBV = Instance.new("BodyVelocity")
-            bhopBV.Name = "BHopBV"
-            bhopBV.MaxForce = Vector3.new(1e5, 0, 1e5)
-            bhopBV.Velocity = Vector3.new(0, 0, 0)
-            bhopBV.Parent = hrp
-        end
-
-        local moveDir = hum.MoveDirection
-        local isMoving = moveDir.Magnitude > 0.1
-        local state = hum:GetState()
-        local onGround = (
-            state == Enum.HumanoidStateType.Running or
-            state == Enum.HumanoidStateType.Landed or
-            state == Enum.HumanoidStateType.RunningNoPhysics
-        )
-
-        if isMoving then
-            local horizontal = Vector3.new(moveDir.X, 0, moveDir.Z)
-            if horizontal.Magnitude > 0.01 then
-                bhopBV.Velocity = horizontal.Unit * Settings.BHopSpeed
-            end
-            if onGround and tick() - lastJump > COOLDOWN then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                lastJump = tick()
-            end
-        else
-            bhopBV.Velocity = Vector3.new(0, 0, 0)
-        end
-    end)
-end
-
--- ========================================
--- ===== СПИН БОТ =====
--- ========================================
-
-local SpinBot = {Enabled=false, Speed=9999}
-local spinConn = nil
-
-local function setupSpinBot()
-    safeDisconnect(spinConn); spinConn = nil
-    if not SpinBot.Enabled then return end
-    spinConn = RunService.Heartbeat:Connect(function(dt)
-        if not LocalPlayer.Character then return end
-        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinBot.Speed * dt), 0) end
-    end)
-end
-
--- ========================================
--- ===== ЗАЩИТА ОТ ФЛИНГА =====
--- ========================================
-
-local antiFlingConn = nil
-local antiFlingNewConn = nil
-
-local function stopAntiFling()
-    safeDisconnect(antiFlingConn); antiFlingConn = nil
-    safeDisconnect(antiFlingNewConn); antiFlingNewConn = nil
-end
-
-local function setupAntiFling()
-    stopAntiFling()
-    if not Settings.AntiFlingEnabled then return end
-
-    antiFlingConn = RunService.Heartbeat:Connect(function()
-        if not Settings.AntiFlingEnabled then stopAntiFling() return end
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                for _, part in ipairs(player.Character:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
-                        part.CanCollide = false
-                    end
-                end
-            end
-        end
-        local char = LocalPlayer.Character; if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-        if hrp.AssemblyLinearVelocity.Magnitude > 200 then
-            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-        end
-        if hrp.AssemblyAngularVelocity.Magnitude > 20 then
-            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
-        end
-    end)
-
-    antiFlingNewConn = Players.PlayerAdded:Connect(function(player)
-        player.CharacterAdded:Connect(function(charNew)
-            task.wait(0.5)
-            if not Settings.AntiFlingEnabled then return end
-            for _, part in ipairs(charNew:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = false end
-            end
-        end)
-    end)
-end
-
--- ========================================
--- ===== НОКЛИП =====
--- ========================================
-
-local noclipConn = nil
-
--- ========================================
 -- ===== ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ =====
 -- ========================================
 
@@ -2279,164 +2184,6 @@ local function toggleShootButton(enabled)
 end
 
 -- ========================================
--- ===== МОБИЛЬНЫЕ КНОПКИ =====
--- ========================================
-
-local MobileButtons = {}
-
-local function getNextMobilePosition()
-    local count = 0
-    for _ in pairs(MobileButtons) do count = count + 1 end
-    local x = 0.05 + (count % 4) * 0.15
-    local y = 0.1 + math.floor(count / 4) * 0.12
-    return UDim2.new(x, 0, y, 0)
-end
-
-local function executeMobileAction(action)
-    if action == "Fly" then
-        Settings.FlyEnabled = not Settings.FlyEnabled
-        if Settings.FlyEnabled then startFly() else stopFly() end
-        notify("Мобилка", "Полёт: " .. tostring(Settings.FlyEnabled), 1)
-    elseif action == "Spin" then
-        SpinBot.Enabled = not SpinBot.Enabled
-        setupSpinBot()
-        notify("Мобилка", "Спин: " .. tostring(SpinBot.Enabled), 1)
-    elseif action == "Noclip" then
-        if noclipConn then
-            noclipConn:Disconnect()
-            noclipConn = nil
-            notify("Мобилка", "Ноклип: false", 1)
-        else
-            noclipConn = RunService.Stepped:Connect(function()
-                if not LocalPlayer.Character then return end
-                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
-                end
-            end)
-            notify("Мобилка", "Ноклип: true", 1)
-        end
-    elseif action == "Aimbot" then
-        Settings.FovAimbotEnabled = not Settings.FovAimbotEnabled
-        if Settings.FovAimbotEnabled then createFovCircle() end
-        setupFovAimbot()
-        notify("Мобилка", "Аимбот: " .. tostring(Settings.FovAimbotEnabled), 1)
-    elseif action == "ESP" then
-        Settings.MurderESP = not Settings.MurderESP
-        Settings.SheriffESP = Settings.MurderESP
-        Settings.InnocentESP = Settings.MurderESP
-        Settings.TracersEnabled = Settings.MurderESP
-        if Settings.MurderESP then
-            for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then createTracer(p) end end
-            startMainUpdate()
-        else
-            if Cache.mainConn then
-                safeDisconnect(Cache.mainConn)
-                Cache.mainConn = nil
-            end
-            clearAllHighlights()
-            clearAllTracers()
-        end
-        notify("Мобилка", "ESP: " .. tostring(Settings.MurderESP), 1)
-    elseif action == "Jerk" then
-        toggleJerk(not Settings.JerkEnabled)
-        notify("Мобилка", "Jerk: " .. tostring(Settings.JerkEnabled), 1)
-    end
-end
-
-local function createMobileButton(label, action)
-    if MobileButtons[label] then
-        pcall(function() MobileButtons[label]:Destroy() end)
-        MobileButtons[label] = nil
-    end
-
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "MobileButton_" .. label
-    screenGui.ResetOnSpawn = false
-    screenGui.IgnoreGuiInset = true
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 80, 0, 40)
-    button.Position = getNextMobilePosition()
-    button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    button.BackgroundTransparency = 0.15
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Text = label
-    button.TextSize = 14
-    button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 2
-    button.BorderColor3 = Color3.fromRGB(60, 60, 60)
-    button.BorderTransparency = 0.3
-    button.Parent = screenGui
-    button.ClipsDescendants = true
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = button
-
-    local isDragging = false
-    local dragStart = nil
-    local startPos = nil
-    local clickStartPos = nil
-    
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isDragging = false
-            dragStart = input.Position
-            clickStartPos = input.Position
-            startPos = button.Position
-            button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-            button.BackgroundTransparency = 0.1
-        end
-    end)
-
-    button.InputChanged:Connect(function(input)
-        if not dragStart then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            local delta = input.Position - dragStart
-            if delta.Magnitude > 10 then
-                isDragging = true
-                button.Position = UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + delta.X,
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + delta.Y
-                )
-            end
-        end
-    end)
-
-    button.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            button.BackgroundTransparency = 0.15
-            
-            if clickStartPos and (input.Position - clickStartPos).Magnitude < 10 then
-                executeMobileAction(action)
-            end
-            
-            isDragging = false
-            dragStart = nil
-            clickStartPos = nil
-        end
-    end)
-
-    MobileButtons[label] = screenGui
-    return screenGui
-end
-
-local function removeMobileButton(label)
-    if MobileButtons[label] then
-        pcall(function() MobileButtons[label]:Destroy() end)
-        MobileButtons[label] = nil
-        notify("Мобилка", label .. " удалена", 2)
-    else
-        notify("Мобилка", label .. " не найдена", 2)
-    end
-end
-
--- ========================================
 -- ===== ИНТЕРФЕЙС =====
 -- ========================================
 
@@ -2501,7 +2248,6 @@ AuraSection:Toggle({Title = "Включить ауру", Default = false, Callba
     toggleAura(v)
 end})
 
--- Кнопки для выбора аур (через Input)
 for _, name in ipairs(AURA_ORDER) do
     AuraSection:Toggle({
         Title = name:upper(),
@@ -2639,11 +2385,7 @@ local RageM = RageTab:Section({Title = "Телепорты", Side = "Left"})
 local RageA = RageTab:Section({Title = "Действия", Side = "Right"})
 
 RageR:Toggle({Title = "Полёт", Default = false, Callback = function(v)
-    Settings.FlyEnabled = v
-    if v then startFly() else stopFly() end
-end})
-RageR:Input({Title = "Скорость полёта", Default = "60", Placeholder = "60", Callback = function(v)
-    local n = tonumber(v); if n then Settings.FlySpeed = n end
+    toggleFly(v)
 end})
 
 RageL:Toggle({Title = "Бани Хоп", Default = false, Callback = function(v)
@@ -2724,40 +2466,6 @@ CombatR:Input({Title = "Радиус FOV", Default = "120", Placeholder = "120",
     end
 end})
 
--- МОБИЛЬНЫЕ КНОПКИ
-local MobileTab = Window:Tab({Title = "Мобилка", Icon = "smartphone"})
-local MobileL = MobileTab:Section({Title = "Создать кнопку", Side = "Left"})
-local MobileR = MobileTab:Section({Title = "Управление", Side = "Right"})
-
-local function addMobileButtonUI(label, action)
-    createMobileButton(label, action)
-    notify("Мобилка", label .. " создана", 2)
-end
-
-local function removeMobileButtonUI(label)
-    removeMobileButton(label)
-end
-
-MobileL:Button({Title = "Полёт", Callback = function() addMobileButtonUI("Полёт", "Fly") end})
-MobileL:Button({Title = "Спин", Callback = function() addMobileButtonUI("Спин", "Spin") end})
-MobileL:Button({Title = "Ноклип", Callback = function() addMobileButtonUI("Ноклип", "Noclip") end})
-MobileL:Button({Title = "Аимбот", Callback = function() addMobileButtonUI("Аимбот", "Aimbot") end})
-MobileL:Button({Title = "ESP", Callback = function() addMobileButtonUI("ESP", "ESP") end})
-MobileL:Button({Title = "Jerk", Callback = function() addMobileButtonUI("Jerk", "Jerk") end})
-
-MobileR:Button({Title = "Удалить Полёт", Callback = function() removeMobileButtonUI("Полёт") end})
-MobileR:Button({Title = "Удалить Спин", Callback = function() removeMobileButtonUI("Спин") end})
-MobileR:Button({Title = "Удалить Ноклип", Callback = function() removeMobileButtonUI("Ноклип") end})
-MobileR:Button({Title = "Удалить Аимбот", Callback = function() removeMobileButtonUI("Аимбот") end})
-MobileR:Button({Title = "Удалить ESP", Callback = function() removeMobileButtonUI("ESP") end})
-MobileR:Button({Title = "Удалить Jerk", Callback = function() removeMobileButtonUI("Jerk") end})
-MobileR:Button({Title = "Удалить все", Callback = function()
-    for label, _ in pairs(MobileButtons) do
-        removeMobileButton(label)
-    end
-    notify("Мобилка", "Все кнопки удалены", 2)
-end})
-
 -- АВТО ФАРМ
 local FarmTab = Window:Tab({Title = "Авто фарм", Icon = "star"})
 local FarmL = FarmTab:Section({Title = "Фарм", Side = "Left"})
@@ -2814,6 +2522,35 @@ Players.PlayerRemoving:Connect(function(player)
     if Cache.Tracers[player.UserId] then
         pcall(function() Cache.Tracers[player.UserId]:Remove() end)
         Cache.Tracers[player.UserId] = nil
+    end
+end)
+
+-- ФИКС СТАДА: удаляем Core при респавне
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.1)
+    if workspace:FindFirstChild("Core") then
+        workspace.Core:Destroy()
+    end
+    if Cache.FlyCore and Cache.FlyCore.Parent then
+        Cache.FlyCore:Destroy()
+        Cache.FlyCore = nil
+    end
+    if Cache.FlyRunning then
+        Cache.FlyRunning = false
+        if Cache.FlyE1 then
+            Cache.FlyE1:Disconnect()
+            Cache.FlyE1 = nil
+        end
+        if Cache.FlyE2 then
+            Cache.FlyE2:Disconnect()
+            Cache.FlyE2 = nil
+        end
+        Cache.FlyKeys = {a=false,d=false,w=false,s=false}
+        Cache.FlySpeed = 10
+    end
+    if LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
     end
 end)
 
@@ -2880,8 +2617,7 @@ LocalPlayer.CharacterAdded:Connect(function()
         if Settings.ChinaHatStyle == "Classic" then
             hatAddClassic(LocalPlayer.Character)
         end
-    end
-    
+    end    
     if Settings.AuraEnabled then
         task.wait(0.3)
         applyAura()
@@ -3032,4 +2768,3 @@ header.InputEnded:Connect(function(input)
 end)
 
 print("✅ Planet Hub v3.0 ULTIMATE загружен!")
-print("✅ Texture Pack, China Hat, Skybox, Аура, Jerk интегрированы!")

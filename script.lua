@@ -1,6 +1,5 @@
 -- ========================================
--- ===== PLANT HUB v3.0 ULTIMATE =====
--- ===== С АУРОЙ, JERK, FLY (БЕЗ МОБИЛОК) =====
+-- ===== PLANT HUB v3.0 ULTIMATE (ПОЛНАЯ ВЕРСИЯ) =====
 -- ========================================
 
 local Players = game:GetService("Players")
@@ -107,7 +106,6 @@ local Settings = {
     VignetteEnabled = false,
     CustomSkyId = "",
     FlyEnabled = false,
-    FlySpeed = 60,
     BHopEnabled = false,
     BHopSpeed = 30,
     SpinBotEnabled = false,
@@ -139,6 +137,7 @@ local Settings = {
     AuraEnabled = false,
     AuraColor = Color3.fromRGB(133, 220, 255),
     JerkEnabled = false,
+    OrbizEnabled = false,
 }
 
 -- ========================================
@@ -158,10 +157,12 @@ local Cache = {
     TrailAttachments = {},
     FovCircle = nil,
     FovConnection = nil,
-    KillAllRunning = false,
-    FlyBlockPart = nil,
-    ShootButton = nil,
-    GrabGunGui = nil,
+    FlyCore = nil,
+    FlyKeys = {a=false,d=false,w=false,s=false},
+    FlySpeed = 10,
+    FlyRunning = false,
+    FlyE1 = nil,
+    FlyE2 = nil,
     mainConn = nil,
     GrabGunRunning = false,
     WallHopConnection = nil,
@@ -174,12 +175,13 @@ local Cache = {
     AuraParticles = {},
     AuraCache = {},
     JerkConnection = nil,
-    FlyCore = nil,
-    FlyKeys = {a=false,d=false,w=false,s=false},
-    FlySpeed = 10,
-    FlyRunning = false,
-    FlyE1 = nil,
-    FlyE2 = nil,
+    BHopConn = nil,
+    BHopBV = nil,
+    BHopActive = false,
+    SpinConn = nil,
+    OrbizFolder = nil,
+    OrbizParticles = {},
+    OrbizConnection = nil,
 }
 
 local COLORS = {
@@ -199,319 +201,6 @@ local CHAMS_COLORS = {
     Red = Color3.fromRGB(255, 0, 0),
     Green = Color3.fromRGB(0, 255, 0),
 }
-
--- ========================================
--- ===== АУРА (ВЬЮВЕР) =====
--- ========================================
-
-local AURA_IDS = {
-    angel = "97658130917593",
-    starlight = "134645216613107",
-    heavenly = "139300897520961",
-    ribbon = "132069507632161",
-    sakura = "81755778619404",
-    wind = "80694081850877",
-    flow = "119913533725648",
-    star = "73754563740680"
-}
-
-local AURA_ORDER = {"angel", "starlight", "heavenly", "ribbon", "sakura", "wind", "flow", "star"}
-local AuraSelected = {}
-
-for _, name in ipairs(AURA_ORDER) do
-    AuraSelected[name] = false
-end
-
-local function clearAura()
-    for _, p in ipairs(Cache.AuraParticles) do
-        pcall(function() p:Destroy() end)
-    end
-    Cache.AuraParticles = {}
-end
-
-local function loadAura(name)
-    if Cache.AuraCache[name] then return Cache.AuraCache[name] end
-    local id = AURA_IDS[name]
-    if not id then return nil end
-    local success, result = pcall(game.GetObjects, game, "rbxassetid://"..id)
-    if success and result and result[1] then
-        Cache.AuraCache[name] = result[1]
-        return result[1]
-    end
-    return nil
-end
-
-local function colorAura(model, color)
-    local seq = ColorSequence.new(color)
-    for _, descendant in ipairs(model:GetDescendants()) do
-        if descendant:IsA("PointLight") then
-            descendant.Color = color
-        elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
-            descendant.Color = seq
-        end
-    end
-end
-
-local function applyAura()
-    clearAura()
-    
-    if not Settings.AuraEnabled then return end
-    
-    local char = LocalPlayer.Character
-    if not char then return end
-    
-    local real_char = char
-    if char.Parent ~= workspace then
-        real_char = nil
-        for _, obj in ipairs(workspace:GetChildren()) do
-            if obj:IsA("Model") and obj.Name == LocalPlayer.Name then
-                if not (obj:GetAttribute("1") or obj == _G.VIEWPORT_CLONE) then
-                    local hrp = obj:FindFirstChild("HumanoidRootPart")
-                    if hrp and hrp:IsA("BasePart") then
-                        real_char = obj
-                        break
-                    end
-                end
-            end
-        end
-    end
-    
-    if not real_char then return end
-    
-    for _, name in ipairs(AURA_ORDER) do
-        if AuraSelected[name] then
-            local aura_model = loadAura(name)
-            if aura_model then
-                colorAura(aura_model, Settings.AuraColor)
-                local cloned = aura_model:Clone()
-                for _, part in ipairs(cloned:GetChildren()) do
-                    local target = real_char:FindFirstChild(part.Name)
-                    if target and target:IsA("BasePart") then
-                        for _, child in ipairs(part:GetChildren()) do
-                            child.Parent = target
-                            table.insert(Cache.AuraParticles, child)
-                        end
-                    end
-                end
-                cloned:Destroy()
-            end
-        end
-    end
-end
-
-local function toggleAura(value)
-    Settings.AuraEnabled = value
-    if value then
-        applyAura()
-    else
-        clearAura()
-    end
-end
-
--- ========================================
--- ===== JERK (ОРИГИНАЛ) =====
--- ========================================
-
-local function toggleJerk(value)
-    Settings.JerkEnabled = value
-    
-    if value then
-        if Cache.JerkConnection then
-            Cache.JerkConnection:Disconnect()
-            Cache.JerkConnection = nil
-        end
-        
-        Cache.JerkConnection = RunService.Heartbeat:Connect(function()
-            if not LocalPlayer.Character then return end
-            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            
-            local randomVec = Vector3.new(
-                math.random(-50, 50),
-                math.random(-30, 30),
-                math.random(-50, 50)
-            )
-            hrp.AssemblyLinearVelocity = randomVec
-        end)
-        notify("Jerk", "Включен", 2)
-    else
-        if Cache.JerkConnection then
-            Cache.JerkConnection:Disconnect()
-            Cache.JerkConnection = nil
-        end
-        notify("Jerk", "Выключен", 2)
-    end
-end
-
--- ========================================
--- ===== FLY (ОРИГИНАЛ) =====
--- ========================================
-
-local function stopFly()
-    if Cache.FlyRunning then
-        Cache.FlyRunning = false
-        if Cache.FlyE1 then
-            Cache.FlyE1:Disconnect()
-            Cache.FlyE1 = nil
-        end
-        if Cache.FlyE2 then
-            Cache.FlyE2:Disconnect()
-            Cache.FlyE2 = nil
-        end
-        if Cache.FlyCore and Cache.FlyCore.Parent then
-            Cache.FlyCore:Destroy()
-            Cache.FlyCore = nil
-        end
-        if LocalPlayer.Character then
-            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum.PlatformStand = false end
-        end
-        Cache.FlyKeys = {a=false,d=false,w=false,s=false}
-        Cache.FlySpeed = 10
-    end
-end
-
-local function startFly()
-    if Cache.FlyRunning then return end
-    if not LocalPlayer.Character then return end
-    
-    local mouse = LocalPlayer:GetMouse()
-    if not mouse then return end
-    
-    -- Удаляем старый Core
-    if workspace:FindFirstChild("Core") then
-        workspace.Core:Destroy()
-    end
-    if Cache.FlyCore and Cache.FlyCore.Parent then
-        Cache.FlyCore:Destroy()
-        Cache.FlyCore = nil
-    end
-    
-    local Core = Instance.new("Part")
-    Core.Name = "Core"
-    Core.Size = Vector3.new(0.05, 0.05, 0.05)
-    Core.Anchored = true
-    Core.CanCollide = false
-    Core.Transparency = 1
-    Core.Parent = workspace
-    
-    task.spawn(function()
-        repeat task.wait() until LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("LowerTorso")
-        if Core and Core.Parent then
-            local Weld = Instance.new("Weld", Core)
-            Weld.Part0 = Core
-            Weld.Part1 = LocalPlayer.Character.LowerTorso
-            Weld.C0 = CFrame.new(0, 0, 0)
-        end
-    end)
-    
-    task.wait(0.1)
-    local torso = workspace:FindFirstChild("Core")
-    if not torso then
-        notify("Fly", "Core не создан", 2)
-        return
-    end
-    
-    Cache.FlyCore = torso
-    Cache.FlyRunning = true
-    Cache.FlyKeys = {a=false,d=false,w=false,s=false}
-    Cache.FlySpeed = 10
-    
-    local pos = Instance.new("BodyPosition", torso)
-    local gyro = Instance.new("BodyGyro", torso)
-    pos.Name = "EPIXPOS"
-    pos.maxForce = Vector3.new(math.huge, math.huge, math.huge)
-    pos.position = torso.Position
-    gyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
-    gyro.cframe = torso.CFrame
-    
-    local flyThread = task.spawn(function()
-        while Cache.FlyRunning and torso and torso.Parent do
-            task.wait()
-            if not LocalPlayer.Character then break end
-            
-            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum.PlatformStand = true end
-            
-            local new = gyro.cframe - gyro.cframe.p + pos.position
-            
-            if not Cache.FlyKeys.w and not Cache.FlyKeys.s and not Cache.FlyKeys.a and not Cache.FlyKeys.d then
-                Cache.FlySpeed = 5
-            end
-            
-            if Cache.FlyKeys.w then
-                new = new + workspace.CurrentCamera.CoordinateFrame.lookVector * Cache.FlySpeed
-            end
-            if Cache.FlyKeys.s then
-                new = new - workspace.CurrentCamera.CoordinateFrame.lookVector * Cache.FlySpeed
-            end
-            if Cache.FlyKeys.d then
-                new = new * CFrame.new(Cache.FlySpeed,0,0)
-            end
-            if Cache.FlyKeys.a then
-                new = new * CFrame.new(-Cache.FlySpeed,0,0)
-            end
-            
-            if Cache.FlySpeed > 10 then Cache.FlySpeed = 5 end
-            
-            pos.position = new.p
-            
-            if Cache.FlyKeys.w then
-                gyro.cframe = workspace.CurrentCamera.CoordinateFrame * CFrame.Angles(-math.rad(Cache.FlySpeed*0),0,0)
-            elseif Cache.FlyKeys.s then
-                gyro.cframe = workspace.CurrentCamera.CoordinateFrame * CFrame.Angles(math.rad(Cache.FlySpeed*0),0,0)
-            else
-                gyro.cframe = workspace.CurrentCamera.CoordinateFrame
-            end
-        end
-        
-        if gyro then gyro:Destroy() end
-        if pos then pos:Destroy() end
-        if Cache.FlyCore and Cache.FlyCore.Parent then
-            Cache.FlyCore:Destroy()
-            Cache.FlyCore = nil
-        end
-        if LocalPlayer.Character then
-            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum.PlatformStand = false end
-        end
-        Cache.FlyRunning = false
-    end)
-    
-    Cache.FlyE1 = mouse.KeyDown:Connect(function(key)
-        if not Cache.FlyRunning then return end
-        if key == "w" then Cache.FlyKeys.w = true
-        elseif key == "s" then Cache.FlyKeys.s = true
-        elseif key == "a" then Cache.FlyKeys.a = true
-        elseif key == "d" then Cache.FlyKeys.d = true
-        elseif key == "x" then
-            if Cache.FlyRunning then
-                stopFly()
-            else
-                startFly()
-            end
-        end
-    end)
-    
-    Cache.FlyE2 = mouse.KeyUp:Connect(function(key)
-        if key == "w" then Cache.FlyKeys.w = false
-        elseif key == "s" then Cache.FlyKeys.s = false
-        elseif key == "a" then Cache.FlyKeys.a = false
-        elseif key == "d" then Cache.FlyKeys.d = false
-        end
-    end)
-    
-    notify("Fly", "Включен (WASD - движение, X - выкл)", 2)
-end
-
-local function toggleFly(value)
-    Settings.FlyEnabled = value
-    if value then
-        startFly()
-    else
-        stopFly()
-    end
-end
 
 -- ========================================
 -- ===== ХЕЛПЕРЫ =====
@@ -672,6 +361,522 @@ local function createGunBeam(startPos, endPos, color, duration)
 end
 
 -- ========================================
+-- ===== АУРА =====
+-- ========================================
+
+local AURA_IDS = {
+    angel = "97658130917593",
+    starlight = "134645216613107",
+    heavenly = "139300897520961",
+    ribbon = "132069507632161",
+    sakura = "81755778619404",
+    wind = "80694081850877",
+    flow = "119913533725648",
+    star = "73754563740680"
+}
+
+local AURA_ORDER = {"angel", "starlight", "heavenly", "ribbon", "sakura", "wind", "flow", "star"}
+local AuraSelected = {}
+
+for _, name in ipairs(AURA_ORDER) do
+    AuraSelected[name] = false
+end
+
+local function clearAura()
+    for _, p in ipairs(Cache.AuraParticles) do
+        pcall(function() p:Destroy() end)
+    end
+    Cache.AuraParticles = {}
+end
+
+local function loadAura(name)
+    if Cache.AuraCache[name] then return Cache.AuraCache[name] end
+    local id = AURA_IDS[name]
+    if not id then return nil end
+    local success, result = pcall(game.GetObjects, game, "rbxassetid://"..id)
+    if success and result and result[1] then
+        Cache.AuraCache[name] = result[1]
+        return result[1]
+    end
+    return nil
+end
+
+local function colorAura(model, color)
+    local seq = ColorSequence.new(color)
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("PointLight") then
+            descendant.Color = color
+        elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
+            descendant.Color = seq
+        end
+    end
+end
+
+local function applyAura()
+    clearAura()
+    if not Settings.AuraEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local real_char = char
+    if char.Parent ~= workspace then
+        real_char = nil
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj.Name == LocalPlayer.Name then
+                if not (obj:GetAttribute("1") or obj == _G.VIEWPORT_CLONE) then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart")
+                    if hrp and hrp:IsA("BasePart") then
+                        real_char = obj
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if not real_char then return end
+    
+    for _, name in ipairs(AURA_ORDER) do
+        if AuraSelected[name] then
+            local aura_model = loadAura(name)
+            if aura_model then
+                colorAura(aura_model, Settings.AuraColor)
+                local cloned = aura_model:Clone()
+                for _, part in ipairs(cloned:GetChildren()) do
+                    local target = real_char:FindFirstChild(part.Name)
+                    if target and target:IsA("BasePart") then
+                        for _, child in ipairs(part:GetChildren()) do
+                            child.Parent = target
+                            table.insert(Cache.AuraParticles, child)
+                        end
+                    end
+                end
+                cloned:Destroy()
+            end
+        end
+    end
+end
+
+local function toggleAura(value)
+    Settings.AuraEnabled = value
+    if value then applyAura() else clearAura() end
+end
+
+-- ========================================
+-- ===== JERK =====
+-- ========================================
+
+local function toggleJerk(value)
+    Settings.JerkEnabled = value
+    
+    if value then
+        if Cache.JerkConnection then
+            Cache.JerkConnection:Disconnect()
+            Cache.JerkConnection = nil
+        end
+        
+        Cache.JerkConnection = RunService.Heartbeat:Connect(function()
+            if not LocalPlayer.Character then return end
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            
+            local randomVec = Vector3.new(
+                math.random(-50, 50),
+                math.random(-30, 30),
+                math.random(-50, 50)
+            )
+            hrp.AssemblyLinearVelocity = randomVec
+        end)
+        notify("Jerk", "Включен", 2)
+    else
+        if Cache.JerkConnection then
+            Cache.JerkConnection:Disconnect()
+            Cache.JerkConnection = nil
+        end
+        notify("Jerk", "Выключен", 2)
+    end
+end
+
+-- ========================================
+-- ===== FLY =====
+-- ========================================
+
+local function stopFly()
+    if Cache.FlyRunning then
+        Cache.FlyRunning = false
+        if Cache.FlyE1 then
+            Cache.FlyE1:Disconnect()
+            Cache.FlyE1 = nil
+        end
+        if Cache.FlyE2 then
+            Cache.FlyE2:Disconnect()
+            Cache.FlyE2 = nil
+        end
+        if Cache.FlyCore and Cache.FlyCore.Parent then
+            Cache.FlyCore:Destroy()
+            Cache.FlyCore = nil
+        end
+        if LocalPlayer.Character then
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
+        end
+        Cache.FlyKeys = {a=false,d=false,w=false,s=false}
+        Cache.FlySpeed = 10
+    end
+end
+
+local function startFly()
+    if Cache.FlyRunning then return end
+    if not LocalPlayer.Character then return end
+    
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse then return end
+    
+    if workspace:FindFirstChild("Core") then
+        workspace.Core:Destroy()
+    end
+    if Cache.FlyCore and Cache.FlyCore.Parent then
+        Cache.FlyCore:Destroy()
+        Cache.FlyCore = nil
+    end
+    
+    local Core = Instance.new("Part")
+    Core.Name = "Core"
+    Core.Size = Vector3.new(0.05, 0.05, 0.05)
+    Core.Anchored = true
+    Core.CanCollide = false
+    Core.Transparency = 1
+    Core.Parent = workspace
+    
+    task.spawn(function()
+        repeat task.wait() until LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("LowerTorso")
+        if Core and Core.Parent then
+            local Weld = Instance.new("Weld", Core)
+            Weld.Part0 = Core
+            Weld.Part1 = LocalPlayer.Character.LowerTorso
+            Weld.C0 = CFrame.new(0, 0, 0)
+        end
+    end)
+    
+    task.wait(0.1)
+    local torso = workspace:FindFirstChild("Core")
+    if not torso then
+        notify("Fly", "Core не создан", 2)
+        return
+    end
+    
+    Cache.FlyCore = torso
+    Cache.FlyRunning = true
+    Cache.FlyKeys = {a=false,d=false,w=false,s=false}
+    Cache.FlySpeed = 10
+    
+    local pos = Instance.new("BodyPosition", torso)
+    local gyro = Instance.new("BodyGyro", torso)
+    pos.Name = "EPIXPOS"
+    pos.maxForce = Vector3.new(math.huge, math.huge, math.huge)
+    pos.position = torso.Position
+    gyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+    gyro.cframe = torso.CFrame
+    
+    local flyThread = task.spawn(function()
+        while Cache.FlyRunning and torso and torso.Parent do
+            task.wait()
+            if not LocalPlayer.Character then break end
+            
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = true end
+            
+            local new = gyro.cframe - gyro.cframe.p + pos.position
+            
+            if not Cache.FlyKeys.w and not Cache.FlyKeys.s and not Cache.FlyKeys.a and not Cache.FlyKeys.d then
+                Cache.FlySpeed = 5
+            end
+            
+            if Cache.FlyKeys.w then
+                new = new + workspace.CurrentCamera.CoordinateFrame.lookVector * Cache.FlySpeed
+            end
+            if Cache.FlyKeys.s then
+                new = new - workspace.CurrentCamera.CoordinateFrame.lookVector * Cache.FlySpeed
+            end
+            if Cache.FlyKeys.d then
+                new = new * CFrame.new(Cache.FlySpeed,0,0)
+            end
+            if Cache.FlyKeys.a then
+                new = new * CFrame.new(-Cache.FlySpeed,0,0)
+            end
+            
+            if Cache.FlySpeed > 10 then Cache.FlySpeed = 5 end
+            
+            pos.position = new.p
+            
+            if Cache.FlyKeys.w then
+                gyro.cframe = workspace.CurrentCamera.CoordinateFrame * CFrame.Angles(-math.rad(Cache.FlySpeed*0),0,0)
+            elseif Cache.FlyKeys.s then
+                gyro.cframe = workspace.CurrentCamera.CoordinateFrame * CFrame.Angles(math.rad(Cache.FlySpeed*0),0,0)
+            else
+                gyro.cframe = workspace.CurrentCamera.CoordinateFrame
+            end
+        end
+        
+        if gyro then gyro:Destroy() end
+        if pos then pos:Destroy() end
+        if Cache.FlyCore and Cache.FlyCore.Parent then
+            Cache.FlyCore:Destroy()
+            Cache.FlyCore = nil
+        end
+        if LocalPlayer.Character then
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
+        end
+        Cache.FlyRunning = false
+    end)
+    
+    Cache.FlyE1 = mouse.KeyDown:Connect(function(key)
+        if not Cache.FlyRunning then return end
+        if key == "w" then Cache.FlyKeys.w = true
+        elseif key == "s" then Cache.FlyKeys.s = true
+        elseif key == "a" then Cache.FlyKeys.a = true
+        elseif key == "d" then Cache.FlyKeys.d = true
+        elseif key == "x" then
+            if Cache.FlyRunning then
+                stopFly()
+            else
+                startFly()
+            end
+        end
+    end)
+    
+    Cache.FlyE2 = mouse.KeyUp:Connect(function(key)
+        if key == "w" then Cache.FlyKeys.w = false
+        elseif key == "s" then Cache.FlyKeys.s = false
+        elseif key == "a" then Cache.FlyKeys.a = false
+        elseif key == "d" then Cache.FlyKeys.d = false
+        end
+    end)
+    
+    notify("Fly", "Включен (WASD - движение, X - выкл)", 2)
+end
+
+local function toggleFly(value)
+    Settings.FlyEnabled = value
+    if value then startFly() else stopFly() end
+end
+
+-- ========================================
+-- ===== BANIHOP =====
+-- ========================================
+
+local function stopBHop()
+    Cache.BHopActive = false
+    if Cache.BHopConn then
+        Cache.BHopConn:Disconnect()
+        Cache.BHopConn = nil
+    end
+    if Cache.BHopBV then
+        pcall(function() Cache.BHopBV:Destroy() end)
+        Cache.BHopBV = nil
+    end
+end
+
+local function startBHop()
+    if not LocalPlayer.Character then return end
+    if Cache.BHopActive then stopBHop() end
+
+    local char = LocalPlayer.Character
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not hrp then return end
+
+    Cache.BHopActive = true
+
+    if Cache.BHopBV then
+        pcall(function() Cache.BHopBV:Destroy() end)
+        Cache.BHopBV = nil
+    end
+    
+    Cache.BHopBV = Instance.new("BodyVelocity")
+    Cache.BHopBV.Name = "BHopBV"
+    Cache.BHopBV.MaxForce = Vector3.new(1e5, 0, 1e5)
+    Cache.BHopBV.Velocity = Vector3.new(0, 0, 0)
+    Cache.BHopBV.Parent = hrp
+
+    local lastJump = 0
+    local COOLDOWN = 0.15
+
+    if Cache.BHopConn then
+        Cache.BHopConn:Disconnect()
+        Cache.BHopConn = nil
+    end
+    
+    Cache.BHopConn = RunService.Stepped:Connect(function()
+        if not Cache.BHopActive then 
+            stopBHop() 
+            return 
+        end
+
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then return end
+
+        if not Cache.BHopBV or not Cache.BHopBV.Parent then
+            Cache.BHopBV = Instance.new("BodyVelocity")
+            Cache.BHopBV.Name = "BHopBV"
+            Cache.BHopBV.MaxForce = Vector3.new(1e5, 0, 1e5)
+            Cache.BHopBV.Velocity = Vector3.new(0, 0, 0)
+            Cache.BHopBV.Parent = hrp
+        end
+
+        local moveDir = hum.MoveDirection
+        local isMoving = moveDir.Magnitude > 0.1
+        local state = hum:GetState()
+        local onGround = (
+            state == Enum.HumanoidStateType.Running or
+            state == Enum.HumanoidStateType.Landed or
+            state == Enum.HumanoidStateType.RunningNoPhysics
+        )
+
+        if isMoving then
+            local horizontal = Vector3.new(moveDir.X, 0, moveDir.Z)
+            if horizontal.Magnitude > 0.01 then
+                Cache.BHopBV.Velocity = horizontal.Unit * Settings.BHopSpeed
+            end
+            if onGround and tick() - lastJump > COOLDOWN then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                lastJump = tick()
+            end
+        else
+            Cache.BHopBV.Velocity = Vector3.new(0, 0, 0)
+        end
+    end)
+    
+    notify("BHop", "Включен", 2)
+end
+
+local function toggleBHop(value)
+    Settings.BHopEnabled = value
+    if value then startBHop() else stopBHop() end
+end
+
+-- ========================================
+-- ===== СПИН БОТ =====
+-- ========================================
+
+local SpinBot = {Enabled = false, Speed = 9999}
+
+local function setupSpinBot()
+    if Cache.SpinConn then
+        Cache.SpinConn:Disconnect()
+        Cache.SpinConn = nil
+    end
+    
+    if not SpinBot.Enabled then return end
+    
+    Cache.SpinConn = RunService.Heartbeat:Connect(function(dt)
+        if not LocalPlayer.Character then return end
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinBot.Speed * dt), 0)
+        end
+    end)
+end
+
+local function toggleSpinBot(value)
+    SpinBot.Enabled = value
+    setupSpinBot()
+    notify("Spin Bot", value and "Включен" or "Выключен", 2)
+end
+
+-- ========================================
+-- ===== ОРБИЗЫ / СНЕГ =====
+-- ========================================
+
+local function createOrbiz()
+    if Cache.OrbizFolder then
+        Cache.OrbizFolder:Destroy()
+        Cache.OrbizFolder = nil
+    end
+    if Cache.OrbizConnection then
+        Cache.OrbizConnection:Disconnect()
+        Cache.OrbizConnection = nil
+    end
+    Cache.OrbizParticles = {}
+    
+    if not Settings.OrbizEnabled then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local folder = Instance.new("Folder")
+    folder.Name = "Orbiz3D"
+    folder.Parent = workspace
+    Cache.OrbizFolder = folder
+
+    local COUNT = 800
+    for i = 1, COUNT do
+        local part = Instance.new("Part")
+        part.Shape = Enum.PartType.Ball
+        part.Size = Vector3.new(0.2 + math.random() * 0.3, 0.2 + math.random() * 0.3, 0.2 + math.random() * 0.3)
+        part.BrickColor = BrickColor.new("Bright violet")
+        part.Material = Enum.Material.Neon
+        part.Transparency = 0.2 + math.random() * 0.5
+        part.Anchored = true
+        part.CanCollide = false
+        part.Parent = folder
+        
+        local range = 80
+        part.Position = root.Position + Vector3.new(
+            (math.random() - 0.5) * range * 2,
+            math.random() * 50 + 20,
+            (math.random() - 0.5) * range * 2
+        )
+        
+        table.insert(Cache.OrbizParticles, {
+            part = part,
+            speed = 0.2 + math.random() * 0.8,
+            driftX = (math.random() - 0.5) * 0.5,
+            driftZ = (math.random() - 0.5) * 0.5,
+            startY = part.Position.Y
+        })
+    end
+
+    Cache.OrbizConnection = RunService.Heartbeat:Connect(function()
+        if not Settings.OrbizEnabled then return end
+        local rootPos = root and root.Position or Vector3.new(0, 0, 0)
+        local range = 80
+        
+        for _, data in pairs(Cache.OrbizParticles) do
+            local part = data.part
+            if not part or not part.Parent then continue end
+            local pos = part.Position
+            
+            pos = pos - Vector3.new(0, data.speed * 0.08, 0)
+            pos = pos + Vector3.new(data.driftX * 0.03, 0, data.driftZ * 0.03)
+            
+            if pos.Y < rootPos.Y - 10 then
+                pos = Vector3.new(
+                    rootPos.X + (math.random() - 0.5) * range * 2,
+                    rootPos.Y + 30 + math.random() * 40,
+                    rootPos.Z + (math.random() - 0.5) * range * 2
+                )
+                part.Transparency = 0.2 + math.random() * 0.5
+                part.Size = Vector3.new(0.2 + math.random() * 0.4, 0.2 + math.random() * 0.4, 0.2 + math.random() * 0.4)
+            end
+            
+            part.Position = pos
+        end
+    end)
+end
+
+local function toggleOrbiz(value)
+    Settings.OrbizEnabled = value
+    createOrbiz()
+    notify("Орбизы", value and "Включены" or "Выключены", 2)
+end
+
+-- ========================================
 -- ===== GRAB GUN =====
 -- ========================================
 
@@ -753,21 +958,15 @@ end
 local function sheriffAutoShootLoop()
     while Settings.SheriffAutoShootEnabled do
         task.wait(0.05)
-        
         if not LocalPlayer.Character then continue end
-        
         if not checkGun(LocalPlayer) then continue end
-        
         local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not myHRP then continue end
-        
         local target = nil
         local targetDist = math.huge
-        
         for _, player in ipairs(Players:GetPlayers()) do
             if player == LocalPlayer then continue end
             if not player.Character then continue end
-            
             if checkKnife(player) and isPlayerVisible(player) then
                 local hrp = player.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
@@ -779,23 +978,18 @@ local function sheriffAutoShootLoop()
                 end
             end
         end
-        
         if target then
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             if tHRP then
                 local targetPos = tHRP.Position
-                
                 Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-                
                 local beamStart = Camera.CFrame.Position
                 createGunBeam(beamStart, targetPos, Color3.fromRGB(180, 50, 255), 0.2)
-                
                 pcall(function()
                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.MouseButton1, false, game)
                     task.wait(0.05)
                     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.MouseButton1, false, game)
                 end)
-                
                 task.wait(0.3)
             end
         end
@@ -806,7 +1000,6 @@ local function toggleSheriffAutoShoot(value)
     Settings.SheriffAutoShootEnabled = value
     safeDisconnect(Cache.SheriffAutoShootConnection)
     Cache.SheriffAutoShootConnection = nil
-    
     if value then
         Cache.SheriffAutoShootConnection = task.spawn(sheriffAutoShootLoop)
         notify("Sheriff AutoShoot", "Включен", 2)
@@ -819,19 +1012,14 @@ end
 -- ===== WALL HOP =====
 -- ========================================
 
-local wallHopConnection = nil
-
 local function setupWallHop()
-    safeDisconnect(wallHopConnection)
-    wallHopConnection = nil
-    
+    safeDisconnect(Cache.WallHopConnection)
+    Cache.WallHopConnection = nil
     if not Settings.WallHopEnabled then return end
-    
-    wallHopConnection = RunService.Heartbeat:Connect(function()
+    Cache.WallHopConnection = RunService.Heartbeat:Connect(function()
         if not LocalPlayer.Character then return end
         local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         if not hum then return end
-        
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
         end
@@ -844,8 +1032,8 @@ local function toggleWallHop(value)
         setupWallHop()
         notify("Wall Hop", "Включен (зажми Space)", 2)
     else
-        safeDisconnect(wallHopConnection)
-        wallHopConnection = nil
+        safeDisconnect(Cache.WallHopConnection)
+        Cache.WallHopConnection = nil
         notify("Wall Hop", "Выключен", 2)
     end
 end
@@ -995,7 +1183,8 @@ end
 -- ========================================
 
 local function createTracer(player)
-    if not player or player == LocalPlayer then return end    if Cache.Tracers[player.UserId] then return end
+    if not player or player == LocalPlayer then return end
+    if Cache.Tracers[player.UserId] then return end
     
     local line = Drawing.new("Line")
     line.Thickness = 2
@@ -1954,83 +2143,58 @@ local function setupAutoFarm()
 end
 
 -- ========================================
--- ===== ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ =====
+-- ===== ЗАЩИТА ОТ ФЛИНГА =====
 -- ========================================
 
-local function updateVisuals()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then
-            if Settings.ChamsEnabled then applyChams(player)
-            elseif Cache.ChamsPartsList[player.UserId] then removeChams(player) end
-            continue
-        end
-        if not player.Character then continue end
-        local role = getRole(player)
-        if Settings.MurderESP and role == "Убийца" then
-            createOrUpdateHighlight(player, COLORS.Murder)
-        elseif Settings.SheriffESP and role == "Шериф" then
-            createOrUpdateHighlight(player, COLORS.Sheriff)
-        elseif Settings.InnocentESP and role == "Невинный" then
-            createOrUpdateHighlight(player, COLORS.Innocent)
-        else
-            removeHighlight(player)
-        end
-        if Settings.ChamsEnabled then applyChams(player)
-        elseif Cache.ChamsPartsList[player.UserId] then removeChams(player) end
-    end
+local antiFlingConn = nil
+local antiFlingNewConn = nil
+
+local function stopAntiFling()
+    safeDisconnect(antiFlingConn); antiFlingConn = nil
+    safeDisconnect(antiFlingNewConn); antiFlingNewConn = nil
 end
 
-local function startMainUpdate()
-    if Cache.mainConn then
-        safeDisconnect(Cache.mainConn)
-        Cache.mainConn = nil
-    end
-    
-    Cache.mainConn = RunService.Heartbeat:Connect(function()
-        local any = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP
-            or Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled
-        
-        if any then
-            updateVisuals()
+local function setupAntiFling()
+    stopAntiFling()
+    if not Settings.AntiFlingEnabled then return end
+
+    antiFlingConn = RunService.Heartbeat:Connect(function()
+        if not Settings.AntiFlingEnabled then stopAntiFling() return end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                for _, part in ipairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
         end
-        
-        if Settings.TracersEnabled then
-            updateTracers()
+        local char = LocalPlayer.Character; if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+        if hrp.AssemblyLinearVelocity.Magnitude > 200 then
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
         end
-        
-        if Settings.JumpCircles then
-            updateJumpCircles()
+        if hrp.AssemblyAngularVelocity.Magnitude > 20 then
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
         end
     end)
-end
 
--- ========================================
--- ===== УВЕДОМЛЕНИЕ О СМЕРТИ ШЕРИФА =====
--- ========================================
-
-local function setupSheriffDeadNotif()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            player.CharacterRemoving:Connect(function()
-                if checkGun(player) then
-                    notify("Шериф", player.Name .. " мёртв", 3)
-                end
-            end)
-        end
-    end
-    Players.PlayerAdded:Connect(function(player)
-        player.CharacterAdded:Connect(function(char)
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.Died:Connect(function()
-                    if checkGun(player) then
-                        notify("Шериф", player.Name .. " мёртв", 3)
-                    end
-                end)
+    antiFlingNewConn = Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(charNew)
+            task.wait(0.5)
+            if not Settings.AntiFlingEnabled then return end
+            for _, part in ipairs(charNew:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
             end
         end)
     end)
 end
+
+-- ========================================
+-- ===== НОКЛИП =====
+-- ========================================
+
+local noclipConn = nil
 
 -- ========================================
 -- ===== КНОПКА ВЫСТРЕЛА =====
@@ -2184,10 +2348,88 @@ local function toggleShootButton(enabled)
 end
 
 -- ========================================
+-- ===== ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ =====
+-- ========================================
+
+local function updateVisuals()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then
+            if Settings.ChamsEnabled then applyChams(player)
+            elseif Cache.ChamsPartsList[player.UserId] then removeChams(player) end
+            continue
+        end
+        if not player.Character then continue end
+        local role = getRole(player)
+        if Settings.MurderESP and role == "Убийца" then
+            createOrUpdateHighlight(player, COLORS.Murder)
+        elseif Settings.SheriffESP and role == "Шериф" then
+            createOrUpdateHighlight(player, COLORS.Sheriff)
+        elseif Settings.InnocentESP and role == "Невинный" then
+            createOrUpdateHighlight(player, COLORS.Innocent)
+        else
+            removeHighlight(player)
+        end
+        if Settings.ChamsEnabled then applyChams(player)
+        elseif Cache.ChamsPartsList[player.UserId] then removeChams(player) end
+    end
+end
+
+local function startMainUpdate()
+    if Cache.mainConn then
+        safeDisconnect(Cache.mainConn)
+        Cache.mainConn = nil
+    end
+    
+    Cache.mainConn = RunService.Heartbeat:Connect(function()
+        local any = Settings.MurderESP or Settings.SheriffESP or Settings.InnocentESP
+            or Settings.ChamsEnabled or Settings.Trails or Settings.TracersEnabled
+        
+        if any then
+            updateVisuals()
+        end
+        
+        if Settings.TracersEnabled then
+            updateTracers()
+        end
+        
+        if Settings.JumpCircles then
+            updateJumpCircles()
+        end
+    end)
+end
+
+-- ========================================
+-- ===== УВЕДОМЛЕНИЕ О СМЕРТИ ШЕРИФА =====
+-- ========================================
+
+local function setupSheriffDeadNotif()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            player.CharacterRemoving:Connect(function()
+                if checkGun(player) then
+                    notify("Шериф", player.Name .. " мёртв", 3)
+                end
+            end)
+        end
+    end
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function(char)
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.Died:Connect(function()
+                    if checkGun(player) then
+                        notify("Шериф", player.Name .. " мёртв", 3)
+                    end
+                end)
+            end
+        end)
+    end)
+end
+
+-- ========================================
 -- ===== ИНТЕРФЕЙС =====
 -- ========================================
 
--- ВИЗУАЛ
 local VisualTab = Window:Tab({Title = "Визуал", Icon = "eye"})
 local VisualSection = VisualTab:Section({Title = "ESP", Side = "Left"})
 
@@ -2234,14 +2476,16 @@ VisualSection:Toggle({Title = "Трассеры", Default = false, Callback = fu
     startMainUpdate()
 end})
 
--- WORLD (TEXTURE PACK)
 local WorldSection = VisualTab:Section({Title = "World", Side = "Left"})
 
 WorldSection:Toggle({Title = "Texture Pack", Default = false, Callback = function(v)
     toggleTexturePack(v)
 end})
 
--- АУРА
+WorldSection:Toggle({Title = "Орбизы / Снег", Default = false, Callback = function(v)
+    toggleOrbiz(v)
+end})
+
 local AuraSection = VisualTab:Section({Title = "Аура", Side = "Right"})
 
 AuraSection:Toggle({Title = "Включить ауру", Default = false, Callback = function(v)
@@ -2277,7 +2521,6 @@ AuraSection:Input({
     end
 })
 
--- ЭФФЕКТЫ
 local EffectsTab = Window:Tab({Title = "Эффекты", Icon = "sparkles"})
 local EffectsL = EffectsTab:Section({Title = "Эффекты", Side = "Left"})
 local EffectsR = EffectsTab:Section({Title = "Мир", Side = "Right"})
@@ -2297,7 +2540,6 @@ EffectsL:Toggle({Title = "Bloom", Default = false, Callback = function(v) Settin
 EffectsL:Toggle({Title = "Цветокоррекция", Default = false, Callback = function(v) Settings.ColorCorrectionEnabled = v setupColorCorrection(v) end})
 EffectsL:Toggle({Title = "Виньетка", Default = false, Callback = function(v) Settings.VignetteEnabled = v setupVignette(v) end})
 
--- CHINA HAT
 local ChinaHatSection = EffectsTab:Section({Title = "China Hat", Side = "Left"})
 
 ChinaHatSection:Toggle({Title = "Включить", Default = false, Callback = function(v)
@@ -2364,7 +2606,6 @@ ChinaHatSection:Input({
     end
 })
 
--- Скайбокс
 EffectsR:Input({Title = "Выбор неба", Default = "HD", Placeholder = "HD, Space, Galaxy, etc.", Callback = function(v)
     Settings.CustomSkyId = v
 end})
@@ -2377,7 +2618,6 @@ EffectsR:Button({Title = "Удалить небо", Callback = function() remove
 EffectsR:Button({Title = "Космос", Callback = function() setupSky("Space") end})
 EffectsR:Button({Title = "Галактика", Callback = function() setupSky("Galaxy") end})
 
--- РЕЙДЖ
 local RageTab = Window:Tab({Title = "Рейдж", Icon = "sword"})
 local RageL = RageTab:Section({Title = "Движение", Side = "Left"})
 local RageR = RageTab:Section({Title = "Полёт", Side = "Right"})
@@ -2389,15 +2629,14 @@ RageR:Toggle({Title = "Полёт", Default = false, Callback = function(v)
 end})
 
 RageL:Toggle({Title = "Бани Хоп", Default = false, Callback = function(v)
-    Settings.BHopEnabled = v
-    if v then startBHop() else stopBHop() end
+    toggleBHop(v)
 end})
 RageL:Input({Title = "Скорость BHop", Default = "30", Placeholder = "30", Callback = function(v)
     local n = tonumber(v); if n then Settings.BHopSpeed = n end
 end})
 
 RageL:Toggle({Title = "Спин Бот", Default = false, Callback = function(v)
-    SpinBot.Enabled = v; setupSpinBot()
+    toggleSpinBot(v)
 end})
 RageL:Input({Title = "Скорость спина", Default = "9999", Placeholder = "9999", Callback = function(v)
     local n = tonumber(v); if n then SpinBot.Speed = n end
@@ -2426,7 +2665,6 @@ RageM:Button({Title = "Телепорт к шерифу", Callback = function() 
 
 RageA:Button({Title = "Grab Gun", Callback = function() toggleGrabGun() end})
 
--- FUN
 local FunTab = Window:Tab({Title = "Fun", Icon = "smile"})
 local FunSection = FunTab:Section({Title = "Приколы", Side = "Left"})
 
@@ -2434,7 +2672,6 @@ FunSection:Toggle({Title = "Jerk (дёрганье)", Default = false, Callback 
     toggleJerk(v)
 end})
 
--- КОМБАТ
 local CombatTab = Window:Tab({Title = "Комбат", Icon = "crosshair"})
 local CombatL = CombatTab:Section({Title = "Комбат", Side = "Left"})
 local CombatR = CombatTab:Section({Title = "Аимбот", Side = "Right"})
@@ -2466,7 +2703,6 @@ CombatR:Input({Title = "Радиус FOV", Default = "120", Placeholder = "120",
     end
 end})
 
--- АВТО ФАРМ
 local FarmTab = Window:Tab({Title = "Авто фарм", Icon = "star"})
 local FarmL = FarmTab:Section({Title = "Фарм", Side = "Left"})
 local FarmR = FarmTab:Section({Title = "Настройки", Side = "Right"})
@@ -2477,7 +2713,6 @@ FarmR:Input({Title = "Скорость фарма", Default = "20", Placeholder 
 FarmR:Input({Title = "Лимит монет", Default = "40", Placeholder = "40", Callback = function(v) local n = tonumber(v) if n then Settings.AutoFarmCoinLimit = n end end})
 FarmR:Input({Title = "Задержка монет", Default = "0.15", Placeholder = "0.15", Callback = function(v) local n = tonumber(v) if n then Settings.AutoFarmCoinDelay = n end end})
 
--- РАЗНОЕ
 local MiscTab = Window:Tab({Title = "Разное", Icon = "timer"})
 local MiscL = MiscTab:Section({Title = "Разное", Side = "Left"})
 
@@ -2617,10 +2852,16 @@ LocalPlayer.CharacterAdded:Connect(function()
         if Settings.ChinaHatStyle == "Classic" then
             hatAddClassic(LocalPlayer.Character)
         end
-    end    
+    end
+    
     if Settings.AuraEnabled then
         task.wait(0.3)
         applyAura()
+    end
+    
+    if Settings.OrbizEnabled then
+        task.wait(0.2)
+        createOrbiz()
     end
 end)
 
@@ -2768,3 +3009,4 @@ header.InputEnded:Connect(function(input)
 end)
 
 print("✅ Planet Hub v3.0 ULTIMATE загружен!")
+print("✅ Texture Pack, China Hat, Skybox, Аура, Jerk, Орбизы, BHop, Spin Bot, Fly интегрированы!")
